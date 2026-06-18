@@ -82,35 +82,55 @@ let prevNetworkStats: {
   [iface: string]: { rx_sec: number; tx_sec: number; time: number }
 } = {}
 
-async function getNetworkConnectionsByPid(): Promise<Map<number, number>> {
+async function getNetworkConnectionsByPid(): Promise<{ map: Map<number, number>; error?: string }> {
   const result = new Map<number, number>()
   try {
     let cmd = ''
     if (process.platform === 'win32') {
       cmd = 'netstat -ano | findstr /R /C:"ESTABLISHED" /C:"TIME_WAIT" /C:"LISTENING"'
     } else {
-      cmd = 'ss -tan | tail -n +2'
+      cmd = 'ss -tuanp | tail -n +2'
     }
-    const { stdout } = await execAsync(cmd, { timeout: 3000 })
+    const { stdout, stderr } = await execAsync(cmd, { timeout: 3000 })
     const lines = stdout.split('\n').filter(Boolean)
+    let matchedPidCount = 0
     for (const line of lines) {
       let pidStr: string | undefined
       if (process.platform === 'win32') {
         const parts = line.trim().split(/\s+/)
         pidStr = parts[parts.length - 1]
       } else {
-        const match = line.match(/users:\(\(".*?",pid=(\d+)/)
-        if (match) pidStr = match[1]
+        const pidRegex = /pid=(\d+)/g
+        let m: RegExpExecArray | null
+        while ((m = pidRegex.exec(line)) !== null) {
+          pidStr = m[1]
+          const pid = parseInt(pidStr)
+          if (!isNaN(pid) && pid > 0) {
+            result.set(pid, (result.get(pid) || 0) + 1)
+            matchedPidCount++
+          }
+        }
+        continue
       }
       if (pidStr) {
         const pid = parseInt(pidStr)
         if (!isNaN(pid) && pid > 0) {
           result.set(pid, (result.get(pid) || 0) + 1)
+          matchedPidCount++
         }
       }
     }
-  } catch { }
-  return result
+    if (process.platform !== 'win32' && matchedPidCount === 0 && lines.length > 0) {
+      const hint = stderr ? stderr.trim().slice(0, 200) : 'ss -p 需要 root 权限才能显示其它用户进程的 PID'
+      return { map: result, error: hint }
+    }
+    return { map: result }
+  } catch (e) {
+    return {
+      map: result,
+      error: e instanceof Error ? e.message : '执行网络统计命令失败',
+    }
+  }
 }
 
 async function getGpuMemoryByPid(): Promise<{ map: Map<number, number>; error?: string }> {
@@ -125,10 +145,9 @@ async function getGpuMemoryByPid(): Promise<{ map: Map<number, number>; error?: 
       const parts = line.split(',').map(s => s.trim())
       if (parts.length < 2) continue
       const pid = parseInt(parts[0])
-      const used = parseFloat(parts[1])
-      if (!isNaN(pid) && pid > 0 && !isNaN(used) && used >= 0) {
-        const usedMB = used > 1024 ? used / 1024 : used
-        map.set(pid, Math.round(usedMB * 10) / 10)
+      const usedMiB = parseFloat(parts[1])
+      if (!isNaN(pid) && pid > 0 && !isNaN(usedMiB) && usedMiB >= 0) {
+        map.set(pid, Math.round(usedMiB * 10) / 10)
       }
     }
     return { map }
@@ -323,16 +342,21 @@ async function tryNvidiaSmi(): Promise<GpuMetrics | null> {
 async function getProcesses(metric: string, limit = 20): Promise<ProcessListResponse> {
   try {
     let metricUnavailable: string | undefined
+    const emptyNet: { map: Map<number, number>; error?: string } = { map: new Map<number, number>() }
     const emptyGpu: { map: Map<number, number>; error?: string } = { map: new Map<number, number>() }
-    const [all, netConnMap, gpuResult] = await Promise.all([
+    const [all, netResult, gpuResult] = await Promise.all([
       si.processes(),
-      metric === 'network' ? getNetworkConnectionsByPid() : Promise.resolve(new Map<number, number>()),
+      metric === 'network' ? getNetworkConnectionsByPid() : Promise.resolve(emptyNet),
       metric === 'gpu' ? getGpuMemoryByPid() : Promise.resolve(emptyGpu),
     ])
 
+    const netConnMap = netResult.map
     const gpuMap = gpuResult.map
     if (metric === 'gpu' && gpuResult.error && gpuMap.size === 0) {
       metricUnavailable = gpuResult.error
+    }
+    if (metric === 'network' && netResult.error && netConnMap.size === 0) {
+      metricUnavailable = netResult.error
     }
 
     let list: ProcessInfo[] = all.list.map(p => {
