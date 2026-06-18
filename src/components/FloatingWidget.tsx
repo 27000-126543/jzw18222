@@ -5,6 +5,7 @@ import { CollapsedView } from './CollapsedView'
 import { ExpandedView } from './ExpandedView'
 import { ProcessModal } from './ProcessModal'
 import { SettingsPanel } from './SettingsPanel'
+import { AlertHistoryPanel } from './AlertHistoryPanel'
 import { cn } from '@/lib/utils'
 import { POSITION_STYLES, THEME_COLORS, COLLAPSED_WIDTH, EXPANDED_WIDTH } from '@/utils/constants'
 import type { Position } from '@/types'
@@ -15,6 +16,7 @@ export function FloatingWidget() {
   const toggleExpanded = useMonitorStore(s => s.toggleExpanded)
   const toggleSettings = useMonitorStore(s => s.toggleSettings)
   const showSettings = useMonitorStore(s => s.showSettings)
+  const showAlertHistory = useMonitorStore(s => s.showAlertHistory)
   const showProcessModal = useMonitorStore(s => s.showProcessModal)
   const position = useMonitorStore(s => s.position)
   const customPosition = useMonitorStore(s => s.customPosition)
@@ -117,6 +119,7 @@ export function FloatingWidget() {
 
       {showProcessModal && <ProcessModal />}
       {showSettings && <SettingsPanel />}
+      {showAlertHistory && <AlertHistoryPanel />}
     </>
   )
 }

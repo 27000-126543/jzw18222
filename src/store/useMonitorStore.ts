@@ -7,6 +7,11 @@ import type {
   Position,
   Theme,
   KillResult,
+  AlertThresholds,
+  ActiveAlert,
+  AlertRecord,
+  AlertMetric,
+  ProcessSortKey,
 } from '@/types'
 import {
   DEFAULT_ENABLED_METRICS,
@@ -16,6 +21,10 @@ import {
   API_BASE,
   LS_SETTINGS_KEY,
   HISTORY_POINT_INTERVAL_MS,
+  DEFAULT_ALERT_THRESHOLDS,
+  MAX_ALERT_RECORDS,
+  DEFAULT_PROCESS_SORT_KEY,
+  DEFAULT_PROCESS_SEARCH,
 } from '@/utils/constants'
 
 interface PersistedSettings {
@@ -25,6 +34,11 @@ interface PersistedSettings {
   customPosition: { x: number; y: number }
   theme: Theme
   historyWindowMinutes: number
+  alertThresholds: AlertThresholds
+  processSearch: string
+  processSortKey: ProcessSortKey
+  processSortAsc: boolean
+  alertRecords: AlertRecord[]
 }
 
 function loadSettings(): PersistedSettings {
@@ -39,6 +53,11 @@ function loadSettings(): PersistedSettings {
         customPosition: parsed.customPosition || { x: 0, y: 0 },
         theme: parsed.theme || 'dark',
         historyWindowMinutes: parsed.historyWindowMinutes || HISTORY_WINDOW_MINUTES,
+        alertThresholds: { ...DEFAULT_ALERT_THRESHOLDS, ...(parsed.alertThresholds || {}) },
+        processSearch: parsed.processSearch || DEFAULT_PROCESS_SEARCH,
+        processSortKey: parsed.processSortKey || DEFAULT_PROCESS_SORT_KEY,
+        processSortAsc: parsed.processSortAsc ?? false,
+        alertRecords: Array.isArray(parsed.alertRecords) ? parsed.alertRecords : [],
       }
     }
   } catch { }
@@ -50,6 +69,11 @@ function loadSettings(): PersistedSettings {
     customPosition: { x: 0, y: 0 },
     theme: sysTheme,
     historyWindowMinutes: HISTORY_WINDOW_MINUTES,
+    alertThresholds: { ...DEFAULT_ALERT_THRESHOLDS },
+    processSearch: DEFAULT_PROCESS_SEARCH,
+    processSortKey: DEFAULT_PROCESS_SORT_KEY,
+    processSortAsc: false,
+    alertRecords: [],
   }
 }
 
@@ -78,6 +102,7 @@ interface MonitorState {
   showProcessModal: boolean
   processModalMetric: MetricKey | null
   showSettings: boolean
+  showAlertHistory: boolean
   position: Position
   customPosition: { x: number; y: number }
   theme: Theme
@@ -86,6 +111,13 @@ interface MonitorState {
   historyWindowMinutes: number
   apiStatus: 'connecting' | 'online' | 'offline'
   lastError: string | null
+  alertThresholds: AlertThresholds
+  activeAlerts: ActiveAlert[]
+  alertRecords: AlertRecord[]
+  processSearch: string
+  processSortKey: ProcessSortKey
+  processSortAsc: boolean
+  chartJumpTs: number | null
 
   toggleExpanded: () => void
   setPosition: (pos: Position) => void
@@ -99,11 +131,48 @@ interface MonitorState {
   closeProcessModal: () => void
   killProcess: (pid: number) => Promise<KillResult>
   toggleSettings: () => void
+  toggleAlertHistory: () => void
+  setAlertThreshold: (metric: AlertMetric, value: number) => void
+  setProcessSearch: (s: string) => void
+  setProcessSortKey: (key: ProcessSortKey) => void
+  toggleProcessSortAsc: () => void
+  jumpToAlertRecord: (ts: number) => void
+  clearChartJump: () => void
+  clearAlertRecords: () => void
   updateMetrics: () => Promise<void>
   clearKillResults: () => void
 }
 
 const initialSettings = loadSettings()
+
+function getVramPercentage(m: SystemMetrics['gpu']): number {
+  if (!m.available || m.vramTotal <= 0) return -1
+  return Math.round((m.vramUsed / m.vramTotal) * 1000) / 10
+}
+
+function detectAlerts(metrics: SystemMetrics, thresholds: AlertThresholds): { metric: AlertMetric; value: number }[] {
+  const out: { metric: AlertMetric; value: number }[] = []
+  if (metrics.cpu.available && metrics.cpu.overall >= 0 && metrics.cpu.overall >= thresholds.cpu) {
+    out.push({ metric: 'cpu', value: metrics.cpu.overall })
+  }
+  if (metrics.memory.available && metrics.memory.percentage >= 0 && metrics.memory.percentage >= thresholds.memory) {
+    out.push({ metric: 'memory', value: metrics.memory.percentage })
+  }
+  if (metrics.network.available && metrics.network.upload >= 0 && metrics.network.upload >= thresholds.networkUpload) {
+    out.push({ metric: 'networkUpload', value: metrics.network.upload })
+  }
+  if (metrics.network.available && metrics.network.download >= 0 && metrics.network.download >= thresholds.networkDownload) {
+    out.push({ metric: 'networkDownload', value: metrics.network.download })
+  }
+  if (metrics.gpu.available && metrics.gpu.utilization >= 0 && metrics.gpu.utilization >= thresholds.gpu) {
+    out.push({ metric: 'gpu', value: metrics.gpu.utilization })
+  }
+  const vramPct = getVramPercentage(metrics.gpu)
+  if (metrics.gpu.available && vramPct >= 0 && vramPct >= thresholds.vram) {
+    out.push({ metric: 'vram', value: vramPct })
+  }
+  return out
+}
 
 export const useMonitorStore = create<MonitorState>((set, get) => ({
   metrics: defaultMetrics,
@@ -117,6 +186,7 @@ export const useMonitorStore = create<MonitorState>((set, get) => ({
   showProcessModal: false,
   processModalMetric: null,
   showSettings: false,
+  showAlertHistory: false,
   position: initialSettings.position,
   customPosition: initialSettings.customPosition,
   theme: initialSettings.theme,
@@ -125,6 +195,13 @@ export const useMonitorStore = create<MonitorState>((set, get) => ({
   historyWindowMinutes: initialSettings.historyWindowMinutes,
   apiStatus: 'connecting',
   lastError: null,
+  alertThresholds: initialSettings.alertThresholds,
+  activeAlerts: [],
+  alertRecords: initialSettings.alertRecords,
+  processSearch: initialSettings.processSearch,
+  processSortKey: initialSettings.processSortKey,
+  processSortAsc: initialSettings.processSortAsc,
+  chartJumpTs: null,
 
   toggleExpanded: () => set(s => ({ isExpanded: !s.isExpanded })),
 
@@ -225,7 +302,39 @@ export const useMonitorStore = create<MonitorState>((set, get) => ({
     }
   },
 
-  toggleSettings: () => set(s => ({ showSettings: !s.showSettings })),
+  toggleSettings: () => set(s => ({ showSettings: !s.showSettings, showAlertHistory: false })),
+
+  toggleAlertHistory: () => set(s => ({ showAlertHistory: !s.showAlertHistory, showSettings: false })),
+
+  setAlertThreshold: (metric, value) => {
+    const next = { ...get().alertThresholds, [metric]: Math.max(0, value) }
+    set({ alertThresholds: next })
+    saveSettings({ ...get(), alertThresholds: next })
+  },
+
+  setProcessSearch: (s) => {
+    set({ processSearch: s })
+    saveSettings({ ...get(), processSearch: s })
+  },
+
+  setProcessSortKey: (key) => {
+    set({ processSortKey: key })
+    saveSettings({ ...get(), processSortKey: key })
+  },
+
+  toggleProcessSortAsc: () => set(s => {
+    const next = !s.processSortAsc
+    saveSettings({ ...get(), processSortAsc: next })
+    return { processSortAsc: next }
+  }),
+
+  jumpToAlertRecord: (ts) => set({ chartJumpTs: ts, showAlertHistory: false, isExpanded: true }),
+  clearChartJump: () => set({ chartJumpTs: null }),
+
+  clearAlertRecords: () => {
+    set({ alertRecords: [] })
+    saveSettings({ ...get(), alertRecords: [] })
+  },
 
   updateMetrics: async () => {
     try {
@@ -252,16 +361,73 @@ export const useMonitorStore = create<MonitorState>((set, get) => ({
         if (newHistory.length > maxPoints) {
           newHistory.splice(0, newHistory.length - maxPoints)
         }
+
+        const metricsSnapshot: SystemMetrics = {
+          cpu: data.cpu, memory: data.memory, network: data.network, gpu: data.gpu,
+        }
+        const triggered = detectAlerts(metricsSnapshot, s.alertThresholds)
+
+        let newActive = [...s.activeAlerts]
+        const triggeredKeys = new Set(triggered.map(t => t.metric))
+        const now = Date.now()
+
+        let newRecords = [...s.alertRecords]
+        let recordsChanged = false
+
+        for (const active of newActive) {
+          if (!triggeredKeys.has(active.metric)) {
+            const idx = newRecords.findIndex(r => r.metric === active.metric && r.endedAt === null)
+            if (idx >= 0) {
+              newRecords[idx] = {
+                ...newRecords[idx],
+                endedAt: now,
+                durationMs: now - newRecords[idx].startedAt,
+              }
+              recordsChanged = true
+            }
+          }
+        }
+        newActive = newActive.filter(a => triggeredKeys.has(a.metric))
+
+        for (const t of triggered) {
+          const existing = newActive.find(a => a.metric === t.metric)
+          if (existing) {
+            existing.current = t.value
+            existing.peak = Math.max(existing.peak, t.value)
+            const idx = newRecords.findIndex(r => r.metric === t.metric && r.endedAt === null)
+            if (idx >= 0 && newRecords[idx].peak < existing.peak) {
+              newRecords[idx].peak = existing.peak
+              recordsChanged = true
+            }
+          } else {
+            newActive.push({ metric: t.metric, triggeredAt: now, peak: t.value, current: t.value })
+            newRecords.push({
+              id: `${t.metric}-${now}-${Math.random().toString(36).slice(2, 7)}`,
+              metric: t.metric,
+              startedAt: now,
+              endedAt: null,
+              peak: t.value,
+              durationMs: null,
+            })
+            recordsChanged = true
+          }
+        }
+
+        if (recordsChanged && newRecords.length > MAX_ALERT_RECORDS) {
+          newRecords = newRecords.slice(newRecords.length - MAX_ALERT_RECORDS)
+        }
+
+        if (recordsChanged) {
+          saveSettings({ ...s, alertRecords: newRecords })
+        }
+
         return {
-          metrics: {
-            cpu: data.cpu,
-            memory: data.memory,
-            network: data.network,
-            gpu: data.gpu,
-          },
+          metrics: metricsSnapshot,
           history: newHistory,
           apiStatus: 'online',
           lastError: null,
+          activeAlerts: newActive,
+          alertRecords: newRecords,
         }
       })
     } catch (e: any) {

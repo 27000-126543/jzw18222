@@ -82,7 +82,7 @@ let prevNetworkStats: {
   [iface: string]: { rx_sec: number; tx_sec: number; time: number }
 } = {}
 
-async function getNetworkConnectionsByPid(): Promise<{ map: Map<number, number>; error?: string }> {
+async function getNetworkConnectionsByPid(): Promise<{ map: Map<number, number>; error?: string; partial?: boolean }> {
   const result = new Map<number, number>()
   try {
     let cmd = ''
@@ -93,36 +93,42 @@ async function getNetworkConnectionsByPid(): Promise<{ map: Map<number, number>;
     }
     const { stdout, stderr } = await execAsync(cmd, { timeout: 3000 })
     const lines = stdout.split('\n').filter(Boolean)
-    let matchedPidCount = 0
+    let matchedLineCount = 0
     for (const line of lines) {
-      let pidStr: string | undefined
+      let pidFound = false
       if (process.platform === 'win32') {
         const parts = line.trim().split(/\s+/)
-        pidStr = parts[parts.length - 1]
+        const pidStr = parts[parts.length - 1]
+        const pid = parseInt(pidStr)
+        if (!isNaN(pid) && pid > 0) {
+          result.set(pid, (result.get(pid) || 0) + 1)
+          pidFound = true
+        }
       } else {
         const pidRegex = /pid=(\d+)/g
         let m: RegExpExecArray | null
         while ((m = pidRegex.exec(line)) !== null) {
-          pidStr = m[1]
-          const pid = parseInt(pidStr)
+          const pid = parseInt(m[1])
           if (!isNaN(pid) && pid > 0) {
             result.set(pid, (result.get(pid) || 0) + 1)
-            matchedPidCount++
+            pidFound = true
           }
         }
-        continue
       }
-      if (pidStr) {
-        const pid = parseInt(pidStr)
-        if (!isNaN(pid) && pid > 0) {
-          result.set(pid, (result.get(pid) || 0) + 1)
-          matchedPidCount++
-        }
-      }
+      if (pidFound) matchedLineCount++
     }
-    if (process.platform !== 'win32' && matchedPidCount === 0 && lines.length > 0) {
-      const hint = stderr ? stderr.trim().slice(0, 200) : 'ss -p 需要 root 权限才能显示其它用户进程的 PID'
-      return { map: result, error: hint }
+    if (process.platform !== 'win32' && lines.length > 0) {
+      const coverage = matchedLineCount / lines.length
+      if (coverage < 0.9) {
+        let hint: string
+        if (matchedLineCount === 0) {
+          hint = stderr ? stderr.trim().slice(0, 200) : 'ss -p 需要 root 权限才能显示其它用户进程的 PID，当前列表为空'
+        } else {
+          const pct = Math.round(coverage * 100)
+          hint = `ss -p 仅匹配到 ${matchedLineCount}/${lines.length} 行（约 ${pct}%）的连接 PID。请以 root 权限启动后端以获得完整统计，未显示 PID 的进程连接数记为 0`
+        }
+        return { map: result, error: hint, partial: matchedLineCount > 0 }
+      }
     }
     return { map: result }
   } catch (e) {

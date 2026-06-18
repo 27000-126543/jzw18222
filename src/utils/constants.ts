@@ -1,4 +1,4 @@
-import type { MetricKey, Position } from '@/types'
+import type { AlertThresholds, MetricKey, Position, ProcessSortKey, AlertMetric } from '@/types'
 
 export const ALL_METRICS: MetricKey[] = ['cpu', 'memory', 'network', 'gpu']
 
@@ -13,6 +13,39 @@ export const UPDATE_INTERVAL_MS = 1000
 export const HISTORY_POINT_INTERVAL_MS = 1000
 
 export const MAX_HISTORY_POINTS = Math.floor((HISTORY_WINDOW_MINUTES * 60 * 1000) / HISTORY_POINT_INTERVAL_MS)
+
+export const MAX_ALERT_RECORDS = 500
+
+export const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
+  cpu: 90,
+  memory: 90,
+  networkUpload: 50,
+  networkDownload: 100,
+  gpu: 95,
+  vram: 90,
+}
+
+export const ALERT_METRIC_LABELS: Record<AlertMetric, string> = {
+  cpu: 'CPU 使用率',
+  memory: '内存占用',
+  networkUpload: '网络上行速度',
+  networkDownload: '网络下行速度',
+  gpu: 'GPU 利用率',
+  vram: 'GPU 显存占用',
+}
+
+export const ALERT_METRIC_UNITS: Record<AlertMetric, string> = {
+  cpu: '%',
+  memory: '%',
+  networkUpload: 'MB/s',
+  networkDownload: 'MB/s',
+  gpu: '%',
+  vram: '%',
+}
+
+export const DEFAULT_PROCESS_SORT_KEY: ProcessSortKey = 'value'
+
+export const DEFAULT_PROCESS_SEARCH = ''
 
 export const POSITION_STYLES: Record<Exclude<Position, 'free'>, string> = {
   'top-left': 'top-4 left-4',

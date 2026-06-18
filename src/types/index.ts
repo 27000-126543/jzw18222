@@ -93,3 +93,32 @@ export interface KillResult {
   message: string
   error?: string
 }
+
+export type AlertMetric = 'cpu' | 'memory' | 'networkUpload' | 'networkDownload' | 'gpu' | 'vram'
+
+export interface AlertThresholds {
+  cpu: number
+  memory: number
+  networkUpload: number
+  networkDownload: number
+  gpu: number
+  vram: number
+}
+
+export interface ActiveAlert {
+  metric: AlertMetric
+  triggeredAt: number
+  peak: number
+  current: number
+}
+
+export interface AlertRecord {
+  id: string
+  metric: AlertMetric
+  startedAt: number
+  endedAt: number | null
+  peak: number
+  durationMs: number | null
+}
+
+export type ProcessSortKey = 'value' | 'pid' | 'name'

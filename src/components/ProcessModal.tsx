@@ -2,7 +2,7 @@ import React from 'react'
 import { useMonitorStore } from '@/store/useMonitorStore'
 import { THEME_COLORS } from '@/utils/constants'
 import type { MetricKey } from '@/types'
-import { X, Skull, RefreshCw, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react'
+import { X, Skull, RefreshCw, AlertTriangle, CheckCircle2, XCircle, Search, SortAsc, SortDesc } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 const LABELS: Record<MetricKey, string> = {
@@ -22,6 +22,12 @@ export function ProcessModal() {
   const killProcess = useMonitorStore(s => s.killProcess)
   const refreshProcesses = useMonitorStore(s => s.refreshProcesses)
   const theme = useMonitorStore(s => s.theme)
+  const processSearch = useMonitorStore(s => s.processSearch)
+  const processSortKey = useMonitorStore(s => s.processSortKey)
+  const processSortAsc = useMonitorStore(s => s.processSortAsc)
+  const setProcessSearch = useMonitorStore(s => s.setProcessSearch)
+  const setProcessSortKey = useMonitorStore(s => s.setProcessSortKey)
+  const toggleProcessSortAsc = useMonitorStore(s => s.toggleProcessSortAsc)
   const colors = THEME_COLORS[theme]
 
   const [confirmPid, setConfirmPid] = useState<number | null>(null)
@@ -137,8 +143,33 @@ export function ProcessModal() {
   }
 
   const sortedProcesses = useMemo(() => {
-    return [...processes].sort((a, b) => getMetricSortValue(b) - getMetricSortValue(a))
-  }, [processes, processModalMetric])
+    let result = [...processes]
+
+    const kw = processSearch.trim().toLowerCase()
+    if (kw) {
+      result = result.filter(p =>
+        p.name.toLowerCase().includes(kw) || String(p.pid).includes(kw)
+      )
+    }
+
+    result.sort((a, b) => {
+      let cmp = 0
+      switch (processSortKey) {
+        case 'value':
+          cmp = getMetricSortValue(a) - getMetricSortValue(b)
+          break
+        case 'pid':
+          cmp = a.pid - b.pid
+          break
+        case 'name':
+          cmp = a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+          break
+      }
+      return processSortAsc ? cmp : -cmp
+    })
+
+    return result
+  }, [processes, processModalMetric, processSearch, processSortKey, processSortAsc])
 
   const pids = sortedProcesses.map(p => p.pid)
   const shownKillResults = killResults.filter(r => pids.includes(r.pid))
@@ -249,6 +280,69 @@ export function ProcessModal() {
             </div>
           </div>
         )}
+
+        <div
+          className="px-3 py-2 flex items-center justify-between gap-2"
+          style={{
+            borderBottom: `1px solid ${colors.border}`,
+            background: colors.card,
+          }}
+        >
+          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+            <Search size={12} style={{ color: colors.textSecondary, flexShrink: 0 }} />
+            <input
+              type="text"
+              placeholder="搜索进程名 / PID..."
+              value={processSearch}
+              onChange={e => setProcessSearch(e.target.value)}
+              className="flex-1 min-w-0 bg-transparent outline-none text-[11px]"
+              style={{
+                color: colors.text,
+                fontFamily: '"JetBrains Mono", monospace',
+              }}
+            />
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setProcessSortKey('value')}
+              className="px-2 py-0.5 text-[11px] rounded transition-colors"
+              style={{
+                background: processSortKey === 'value' ? colors.accent : 'transparent',
+                color: processSortKey === 'value' ? '#fff' : colors.textSecondary,
+              }}
+            >
+              占用值
+            </button>
+            <button
+              onClick={() => setProcessSortKey('pid')}
+              className="px-2 py-0.5 text-[11px] rounded transition-colors"
+              style={{
+                background: processSortKey === 'pid' ? colors.accent : 'transparent',
+                color: processSortKey === 'pid' ? '#fff' : colors.textSecondary,
+              }}
+            >
+              PID
+            </button>
+            <button
+              onClick={() => setProcessSortKey('name')}
+              className="px-2 py-0.5 text-[11px] rounded transition-colors"
+              style={{
+                background: processSortKey === 'name' ? colors.accent : 'transparent',
+                color: processSortKey === 'name' ? '#fff' : colors.textSecondary,
+              }}
+            >
+              进程名
+            </button>
+            <button
+              onClick={toggleProcessSortAsc}
+              className="p-1 rounded transition-colors hover:opacity-80"
+              style={{ color: colors.textSecondary }}
+              title={processSortAsc ? '升序' : '降序'}
+            >
+              {processSortAsc ? <SortAsc size={12} /> : <SortDesc size={12} />}
+            </button>
+          </div>
+        </div>
 
         {sortedProcesses.length === 0 && !processesFetchError && (
           <div

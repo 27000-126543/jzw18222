@@ -1,6 +1,6 @@
 import { useMonitorStore } from '@/store/useMonitorStore'
 import { THEME_COLORS, HISTORY_POINT_INTERVAL_MS } from '@/utils/constants'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ComposedChart,
   Line,
@@ -11,7 +11,9 @@ import {
   ResponsiveContainer,
   CartesianGrid,
   Legend,
+  ReferenceLine,
 } from 'recharts'
+import { X } from 'lucide-react'
 
 type ChartKeys = 'cpuOverall' | 'memoryPercentage' | 'gpuUtilization' | 'networkDownload' | 'networkUpload'
 
@@ -31,10 +33,17 @@ const LIGHT_LINE_COLORS: Record<ChartKeys, string> = {
   networkUpload: '#c62828',
 }
 
+function formatTime(ts: number): string {
+  const d = new Date(ts)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
+}
+
 export function HistoryChart() {
   const history = useMonitorStore(s => s.history)
   const historyWindowMinutes = useMonitorStore(s => s.historyWindowMinutes)
   const theme = useMonitorStore(s => s.theme)
+  const chartJumpTs = useMonitorStore(s => s.chartJumpTs)
+  const clearChartJump = useMonitorStore(s => s.clearChartJump)
   const colors = THEME_COLORS[theme]
   const [visible, setVisible] = useState<Record<string, boolean>>({
     cpuOverall: true,
@@ -62,6 +71,28 @@ export function HistoryChart() {
       return { ...p, time }
     })
   }, [history, historyWindowMinutes])
+
+  const closestIndex = useMemo(() => {
+    if (chartJumpTs === null || chartData.length === 0) return -1
+    let bestIdx = 0
+    let bestDiff = Math.abs(chartData[0].timestamp - chartJumpTs)
+    for (let i = 1; i < chartData.length; i++) {
+      const diff = Math.abs(chartData[i].timestamp - chartJumpTs)
+      if (diff < bestDiff) {
+        bestDiff = diff
+        bestIdx = i
+      }
+    }
+    return bestIdx
+  }, [chartJumpTs, chartData])
+
+  useEffect(() => {
+    if (chartJumpTs === null) return
+    const timer = setTimeout(() => {
+      clearChartJump()
+    }, 8000)
+    return () => clearTimeout(timer)
+  }, [chartJumpTs, clearChartJump])
 
   const expectedCount = Math.floor((historyWindowMinutes * 60 * 1000) / HISTORY_POINT_INTERVAL_MS)
   const coveragePct = chartData.length > 0
@@ -94,6 +125,26 @@ export function HistoryChart() {
 
   return (
     <div>
+      {chartJumpTs !== null && (
+        <div
+          className="flex items-center justify-between px-3 py-1.5 mb-2 rounded-lg"
+          style={{
+            background: `${colors.danger}18`,
+            border: `1px solid ${colors.danger}50`,
+          }}
+        >
+          <span className="text-[11px] tabular-nums" style={{ color: colors.danger, fontFamily: '"JetBrains Mono", monospace' }}>
+            已定位到 {formatTime(chartJumpTs)}
+          </span>
+          <button
+            onClick={clearChartJump}
+            className="p-0.5 rounded transition-colors hover:opacity-80"
+            style={{ color: colors.danger }}
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-medium" style={{ color: colors.text, fontFamily: '"DM Sans", sans-serif' }}>
@@ -217,14 +268,23 @@ export function HistoryChart() {
                 fontFamily: '"DM Sans", sans-serif',
                 fontSize: 11,
               }}
-              formatter={(value: any, name: string) => {
+              formatter={(value: number | null | undefined, name: string) => {
                 if (name === '下行' || name === '上行') {
-                  return [formatSpeed(value as number), name]
+                  return [formatSpeed(value), name]
                 }
-                return [formatPercent(value as number), name]
+                return [formatPercent(value), name]
               }}
             />
             <Legend content={() => null} />
+
+            {closestIndex >= 0 && (
+              <ReferenceLine
+                x={chartData[closestIndex]?.time}
+                stroke={colors.danger}
+                strokeDasharray="3 3"
+                strokeWidth={1.5}
+              />
+            )}
 
             {visible.cpuOverall && (
               <Area

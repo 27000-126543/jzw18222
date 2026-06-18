@@ -1,7 +1,7 @@
 import { useMonitorStore } from '@/store/useMonitorStore'
-import { THEME_COLORS } from '@/utils/constants'
-import type { MetricKey, Position } from '@/types'
-import { X, GripVertical, Sun, Moon, Check } from 'lucide-react'
+import { THEME_COLORS, ALERT_METRIC_LABELS } from '@/utils/constants'
+import type { MetricKey, Position, AlertMetric } from '@/types'
+import { X, GripVertical, Sun, Moon, Check, AlertTriangle } from 'lucide-react'
 import { useRef } from 'react'
 
 const METRIC_LABELS: Record<MetricKey, string> = {
@@ -21,6 +21,7 @@ const POSITION_OPTIONS: { value: Position; label: string }[] = [
 
 export function SettingsPanel() {
   const closeSettings = useMonitorStore(s => s.toggleSettings)
+  const toggleAlertHistory = useMonitorStore(s => s.toggleAlertHistory)
   const theme = useMonitorStore(s => s.theme)
   const toggleTheme = useMonitorStore(s => s.toggleTheme)
   const enabledMetrics = useMonitorStore(s => s.enabledMetrics)
@@ -29,6 +30,8 @@ export function SettingsPanel() {
   const reorderMetrics = useMonitorStore(s => s.reorderMetrics)
   const position = useMonitorStore(s => s.position)
   const setPosition = useMonitorStore(s => s.setPosition)
+  const alertThresholds = useMonitorStore(s => s.alertThresholds)
+  const setAlertThreshold = useMonitorStore(s => s.setAlertThreshold)
   const colors = THEME_COLORS[theme]
 
   const dragIndex = useRef<number | null>(null)
@@ -69,13 +72,23 @@ export function SettingsPanel() {
           <span className="text-sm font-semibold" style={{ color: colors.text, fontFamily: '"DM Sans", sans-serif' }}>
             设置
           </span>
-          <button
-            onClick={closeSettings}
-            className="p-1 rounded transition-colors hover:opacity-80"
-            style={{ color: colors.textSecondary }}
-          >
-            <X size={14} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={toggleAlertHistory}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors hover:opacity-80"
+              style={{ color: colors.danger, background: `${colors.danger}15` }}
+            >
+              <AlertTriangle size={12} />
+              告警历史
+            </button>
+            <button
+              onClick={closeSettings}
+              className="p-1 rounded transition-colors hover:opacity-80"
+              style={{ color: colors.textSecondary }}
+            >
+              <X size={14} />
+            </button>
+          </div>
         </div>
 
         <div className="px-4 py-3 space-y-4">
@@ -147,6 +160,34 @@ export function SettingsPanel() {
                   <span className="text-xs" style={{ color: colors.text, fontFamily: '"DM Sans", sans-serif' }}>
                     {METRIC_LABELS[key]}
                   </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="text-xs font-medium mb-2" style={{ color: colors.textSecondary }}>
+              告警阈值
+            </div>
+            <div className="space-y-2">
+              {(['cpu', 'memory', 'networkUpload', 'networkDownload', 'gpu', 'vram'] as AlertMetric[]).map(metric => (
+                <div key={metric} className="flex items-center gap-2">
+                  <label className="text-[11px] flex-shrink-0 w-28" style={{ color: colors.text }}>
+                    {ALERT_METRIC_LABELS[metric]}
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={alertThresholds[metric]}
+                    onChange={e => setAlertThreshold(metric, Number(e.target.value))}
+                    className="flex-1 px-2 py-1 rounded text-xs outline-none tabular-nums"
+                    style={{
+                      background: colors.card,
+                      border: `1px solid ${colors.border}`,
+                      color: colors.text,
+                      fontFamily: '"JetBrains Mono", monospace',
+                    }}
+                  />
                 </div>
               ))}
             </div>

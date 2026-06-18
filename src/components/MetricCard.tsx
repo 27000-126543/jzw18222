@@ -1,6 +1,6 @@
 import { useMonitorStore } from '@/store/useMonitorStore'
 import { THEME_COLORS } from '@/utils/constants'
-import type { MetricKey } from '@/types'
+import type { MetricKey, AlertMetric } from '@/types'
 import { Cpu, HardDrive, Wifi, Monitor, AlertTriangle } from 'lucide-react'
 import { CpuCoreGrid } from './CpuCoreGrid'
 import { useMemo } from 'react'
@@ -73,9 +73,18 @@ export function MetricCard({ metricKey }: MetricCardProps) {
   const history = useMonitorStore(s => s.history)
   const theme = useMonitorStore(s => s.theme)
   const openProcessModal = useMonitorStore(s => s.openProcessModal)
+  const activeAlerts = useMonitorStore(s => s.activeAlerts)
   const colors = THEME_COLORS[theme]
   const accentColor = (theme === 'dark' ? METRIC_COLORS : METRIC_LIGHT_COLORS)[metricKey]
   const unavailableColor = colors.unavailable
+
+  const alertMetrics: Record<MetricKey, AlertMetric[]> = {
+    cpu: ['cpu'],
+    memory: ['memory'],
+    network: ['networkUpload', 'networkDownload'],
+    gpu: ['gpu', 'vram'],
+  }
+  const hasAlert = alertMetrics[metricKey].some(m => activeAlerts.some(a => a.metric === m))
 
   const recentHistory = useMemo(() => history.slice(-30), [history])
 
@@ -228,15 +237,28 @@ export function MetricCard({ metricKey }: MetricCardProps) {
 
   return (
     <div
-      className="rounded-lg p-2.5 cursor-pointer transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
+      className="rounded-lg p-2.5 cursor-pointer transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] relative"
       style={{
-        background: colors.card,
-        border: `1px solid ${colors.border}`,
-        boxShadow: `0 2px 8px rgba(0,0,0,0.08)`,
+        background: hasAlert ? `${colors.danger}33` : colors.card,
+        border: `1px solid ${hasAlert ? colors.danger : colors.border}`,
+        boxShadow: hasAlert ? `0 0 12px ${colors.danger}44` : `0 2px 8px rgba(0,0,0,0.08)`,
       }}
       onClick={() => openProcessModal(metricKey)}
       title="点击查看占用该资源的进程列表"
     >
+      {hasAlert && (
+        <div
+          className="absolute top-1 right-1 px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider"
+          style={{
+            color: colors.danger,
+            background: `${colors.danger}22`,
+            border: `1px solid ${colors.danger}66`,
+            animation: 'pulse-glow 1.2s infinite',
+          }}
+        >
+          ALERT
+        </div>
+      )}
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-1.5">
           {getMetricIcon(metricKey, accentColor)}
@@ -244,7 +266,7 @@ export function MetricCard({ metricKey }: MetricCardProps) {
             {labelMap[metricKey]}
           </span>
         </div>
-        <div className="w-1.5 h-1.5 rounded-full" style={{ background: accentColor, opacity: 0.55 }} />
+        <div className="w-1.5 h-1.5 rounded-full" style={{ background: hasAlert ? colors.danger : accentColor, opacity: hasAlert ? 1 : 0.55 }} />
       </div>
       {renderValue()}
     </div>

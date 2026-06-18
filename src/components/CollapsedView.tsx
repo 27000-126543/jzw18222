@@ -1,6 +1,6 @@
 import { useMonitorStore } from '@/store/useMonitorStore'
 import { THEME_COLORS } from '@/utils/constants'
-import type { MetricKey } from '@/types'
+import type { MetricKey, AlertMetric } from '@/types'
 import { Cpu, HardDrive, Wifi, Monitor, AlertTriangle } from 'lucide-react'
 import { useMemo } from 'react'
 
@@ -81,7 +81,15 @@ export function CollapsedView() {
   const enabledMetrics = useMonitorStore(s => s.enabledMetrics)
   const metricOrder = useMonitorStore(s => s.metricOrder)
   const apiStatus = useMonitorStore(s => s.apiStatus)
+  const activeAlerts = useMonitorStore(s => s.activeAlerts)
   const colors = THEME_COLORS[theme]
+
+  const alertMetrics: Record<MetricKey, AlertMetric[]> = {
+    cpu: ['cpu'],
+    memory: ['memory'],
+    network: ['networkUpload', 'networkDownload'],
+    gpu: ['gpu', 'vram'],
+  }
 
   const visibleMetrics = useMemo(
     () => metricOrder.filter(m => enabledMetrics.includes(m)),
@@ -130,7 +138,10 @@ export function CollapsedView() {
         break
     }
 
-    const displayColor = available ? color : unavailableColor
+    const hasAlert = alertMetrics[key].some(m => activeAlerts.some(a => a.metric === m))
+    const hasDownloadAlert = activeAlerts.some(a => a.metric === 'networkDownload')
+    const hasUploadAlert = activeAlerts.some(a => a.metric === 'networkUpload')
+    const displayColor = available ? (hasAlert ? colors.danger : color) : unavailableColor
     const historyData = recentHistory.map(h => {
       switch (key) {
         case 'cpu': return h.cpuOverall
@@ -148,13 +159,21 @@ export function CollapsedView() {
             <span className="text-[10px] font-medium" style={{ color: colors.textSecondary, fontFamily: '"DM Sans", sans-serif' }}>NET</span>
           </div>
           <MiniSparkline data={historyData} color={displayColor} />
-          <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-            <span className="text-[10px] tabular-nums" style={{ color: '#4fc3f7', fontFamily: '"JetBrains Mono", monospace' }}>
-              {mainValue}
-            </span>
-            <span className="text-[10px] tabular-nums" style={{ color: '#ef5350', fontFamily: '"JetBrains Mono", monospace' }}>
-              {subValue}
-            </span>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <div className="flex flex-col items-end gap-0.5">
+              <span className="text-[10px] tabular-nums" style={{ color: hasDownloadAlert ? colors.danger : '#4fc3f7', fontFamily: '"JetBrains Mono", monospace' }}>
+                {mainValue}
+              </span>
+              <span className="text-[10px] tabular-nums" style={{ color: hasUploadAlert ? colors.danger : '#ef5350', fontFamily: '"JetBrains Mono", monospace' }}>
+                {subValue}
+              </span>
+            </div>
+            {hasAlert && (
+              <span
+                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style={{ background: colors.danger, animation: 'pulse-glow 1.2s infinite' }}
+              />
+            )}
           </div>
         </div>
       )
@@ -174,9 +193,17 @@ export function CollapsedView() {
           {!available && <AlertTriangle size={9} style={{ color: unavailableColor, opacity: 0.7 }} />}
         </div>
         <MiniSparkline data={historyData} color={displayColor} />
-        <span className="text-xs font-bold tabular-nums" style={{ color: displayColor, fontFamily: '"JetBrains Mono", monospace', flexShrink: 0 }}>
-          {mainValue}
-        </span>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <span className="text-xs font-bold tabular-nums" style={{ color: displayColor, fontFamily: '"JetBrains Mono", monospace' }}>
+            {mainValue}
+          </span>
+          {hasAlert && (
+            <span
+              className="w-1.5 h-1.5 rounded-full"
+              style={{ background: colors.danger, animation: 'pulse-glow 1.2s infinite' }}
+            />
+          )}
+        </div>
       </div>
     )
   }

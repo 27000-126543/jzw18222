@@ -1,10 +1,10 @@
 import { useMonitorStore } from '@/store/useMonitorStore'
 import { MetricCard } from './MetricCard'
 import { HistoryChart } from './HistoryChart'
-import { THEME_COLORS } from '@/utils/constants'
+import { THEME_COLORS, ALERT_METRIC_LABELS, ALERT_METRIC_UNITS } from '@/utils/constants'
 import type { MetricKey } from '@/types'
 import { useMemo } from 'react'
-import { Wifi, WifiOff } from 'lucide-react'
+import { Wifi, WifiOff, AlertTriangle } from 'lucide-react'
 
 export function ExpandedView() {
   const metricOrder = useMonitorStore(s => s.metricOrder)
@@ -12,6 +12,7 @@ export function ExpandedView() {
   const theme = useMonitorStore(s => s.theme)
   const apiStatus = useMonitorStore(s => s.apiStatus)
   const lastError = useMonitorStore(s => s.lastError)
+  const activeAlerts = useMonitorStore(s => s.activeAlerts)
   const colors = THEME_COLORS[theme]
 
   const visibleMetrics = useMemo(
@@ -36,9 +37,36 @@ export function ExpandedView() {
     </div>
   )
 
+  const alertBanner = activeAlerts.length > 0 && (
+    <div
+      className="mb-2 text-[11px] px-3 py-2 rounded"
+      style={{
+        background: `${colors.danger}18`,
+        color: colors.danger,
+        border: `1px solid ${colors.danger}55`,
+      }}
+    >
+      <div className="flex items-center gap-1.5 mb-1 font-semibold">
+        <AlertTriangle size={12} />
+        <span>当前告警</span>
+      </div>
+      <div className="space-y-0.5">
+        {activeAlerts.map(alert => (
+          <div key={alert.metric} className="flex items-center justify-between tabular-nums" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
+            <span>{ALERT_METRIC_LABELS[alert.metric]}</span>
+            <span className="font-semibold">
+              {alert.current.toFixed(1)} {ALERT_METRIC_UNITS[alert.metric]}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+
   return (
     <div className="px-3 py-2.5">
       {statusBadge}
+      {alertBanner}
       {visibleMetrics.length === 0 ? (
         <div
           className="text-xs py-6 text-center rounded-lg mb-3"
