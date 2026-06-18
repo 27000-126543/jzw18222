@@ -15,6 +15,7 @@ import {
   MAX_HISTORY_POINTS,
   API_BASE,
   LS_SETTINGS_KEY,
+  HISTORY_POINT_INTERVAL_MS,
 } from '@/utils/constants'
 
 interface PersistedSettings {
@@ -71,6 +72,7 @@ interface MonitorState {
   processes: ProcessInfo[]
   processesMetric: MetricKey | null
   processesFetchError: string | null
+  processMetricUnavailable: string | null
   killResults: KillResult[]
   isExpanded: boolean
   showProcessModal: boolean
@@ -109,6 +111,7 @@ export const useMonitorStore = create<MonitorState>((set, get) => ({
   processes: [],
   processesMetric: null,
   processesFetchError: null,
+  processMetricUnavailable: null,
   killResults: [],
   isExpanded: false,
   showProcessModal: false,
@@ -165,7 +168,13 @@ export const useMonitorStore = create<MonitorState>((set, get) => ({
   }),
 
   openProcessModal: async (metric) => {
-    set({ showProcessModal: true, processModalMetric: metric, processesMetric: metric, processesFetchError: null })
+    set({
+      showProcessModal: true,
+      processModalMetric: metric,
+      processesMetric: metric,
+      processesFetchError: null,
+      processMetricUnavailable: null,
+    })
     await get().refreshProcesses()
   },
 
@@ -175,14 +184,19 @@ export const useMonitorStore = create<MonitorState>((set, get) => ({
       const res = await fetch(`${API_BASE}/processes?metric=${metric}&limit=20`)
       const data = await res.json()
       if (data.success) {
-        set({ processes: data.processes, processesFetchError: null })
+        set({
+          processes: data.processes,
+          processesFetchError: null,
+          processMetricUnavailable: data.metricUnavailable || null,
+        })
       } else {
-        set({ processes: [], processesFetchError: data.error || '获取进程列表失败' })
+        set({ processes: [], processesFetchError: data.error || '获取进程列表失败', processMetricUnavailable: null })
       }
     } catch (e: any) {
       set({
         processes: [],
         processesFetchError: `网络错误：${e?.message || '连接后端服务失败，请确认已启动 API 服务'}`,
+        processMetricUnavailable: null,
       })
     }
   },
@@ -234,7 +248,7 @@ export const useMonitorStore = create<MonitorState>((set, get) => ({
 
       set(s => {
         const newHistory = [...s.history, point]
-        const maxPoints = Math.floor((s.historyWindowMinutes * 60 * 1000) / 2000)
+        const maxPoints = Math.floor((s.historyWindowMinutes * 60 * 1000) / HISTORY_POINT_INTERVAL_MS)
         if (newHistory.length > maxPoints) {
           newHistory.splice(0, newHistory.length - maxPoints)
         }

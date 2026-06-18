@@ -59,6 +59,8 @@ interface ProcessInfo {
   command: string
   user: string
   startTime: string
+  networkConnections?: number
+  gpuVramUsedMB?: number
 }
 
 interface ProcessListResponse {
@@ -66,6 +68,7 @@ interface ProcessListResponse {
   metric: string
   success: boolean
   error?: string
+  metricUnavailable?: string
 }
 
 interface KillProcessResponse {
@@ -78,6 +81,61 @@ interface KillProcessResponse {
 let prevNetworkStats: {
   [iface: string]: { rx_sec: number; tx_sec: number; time: number }
 } = {}
+
+async function getNetworkConnectionsByPid(): Promise<Map<number, number>> {
+  const result = new Map<number, number>()
+  try {
+    let cmd = ''
+    if (process.platform === 'win32') {
+      cmd = 'netstat -ano | findstr /R /C:"ESTABLISHED" /C:"TIME_WAIT" /C:"LISTENING"'
+    } else {
+      cmd = 'ss -tan | tail -n +2'
+    }
+    const { stdout } = await execAsync(cmd, { timeout: 3000 })
+    const lines = stdout.split('\n').filter(Boolean)
+    for (const line of lines) {
+      let pidStr: string | undefined
+      if (process.platform === 'win32') {
+        const parts = line.trim().split(/\s+/)
+        pidStr = parts[parts.length - 1]
+      } else {
+        const match = line.match(/users:\(\(".*?",pid=(\d+)/)
+        if (match) pidStr = match[1]
+      }
+      if (pidStr) {
+        const pid = parseInt(pidStr)
+        if (!isNaN(pid) && pid > 0) {
+          result.set(pid, (result.get(pid) || 0) + 1)
+        }
+      }
+    }
+  } catch { }
+  return result
+}
+
+async function getGpuMemoryByPid(): Promise<{ map: Map<number, number>; error?: string }> {
+  const map = new Map<number, number>()
+  try {
+    const { stdout } = await execAsync(
+      'nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits',
+      { timeout: 3000 }
+    )
+    const lines = stdout.split('\n').filter(Boolean)
+    for (const line of lines) {
+      const parts = line.split(',').map(s => s.trim())
+      if (parts.length < 2) continue
+      const pid = parseInt(parts[0])
+      const used = parseFloat(parts[1])
+      if (!isNaN(pid) && pid > 0 && !isNaN(used) && used >= 0) {
+        const usedMB = used > 1024 ? used / 1024 : used
+        map.set(pid, Math.round(usedMB * 10) / 10)
+      }
+    }
+    return { map }
+  } catch (e) {
+    return { map, error: '未检测到 NVIDIA 显卡或 nvidia-smi 不可用' }
+  }
+}
 
 async function getCpuMetrics(): Promise<CpuMetrics> {
   try {
@@ -264,16 +322,38 @@ async function tryNvidiaSmi(): Promise<GpuMetrics | null> {
 
 async function getProcesses(metric: string, limit = 20): Promise<ProcessListResponse> {
   try {
-    const all = await si.processes()
-    let list: ProcessInfo[] = all.list.map(p => ({
-      pid: p.pid,
-      name: p.name || p.command || `pid_${p.pid}`,
-      cpuUsage: Math.round((p.cpu || 0) * 10) / 10,
-      memoryUsage: Math.round((p.memVsz || 0) / 1024 * 10) / 10,
-      command: p.command || '',
-      user: p.user || '',
-      startTime: p.started ? new Date(Number(p.started) * 1000).toLocaleString() : '',
-    }))
+    let metricUnavailable: string | undefined
+    const emptyGpu: { map: Map<number, number>; error?: string } = { map: new Map<number, number>() }
+    const [all, netConnMap, gpuResult] = await Promise.all([
+      si.processes(),
+      metric === 'network' ? getNetworkConnectionsByPid() : Promise.resolve(new Map<number, number>()),
+      metric === 'gpu' ? getGpuMemoryByPid() : Promise.resolve(emptyGpu),
+    ])
+
+    const gpuMap = gpuResult.map
+    if (metric === 'gpu' && gpuResult.error && gpuMap.size === 0) {
+      metricUnavailable = gpuResult.error
+    }
+
+    let list: ProcessInfo[] = all.list.map(p => {
+      const pid = p.pid
+      const info: ProcessInfo = {
+        pid,
+        name: p.name || p.command || `pid_${pid}`,
+        cpuUsage: Math.round((p.cpu || 0) * 10) / 10,
+        memoryUsage: Math.round((p.memVsz || 0) / 1024 * 10) / 10,
+        command: p.command || '',
+        user: p.user || '',
+        startTime: p.started ? new Date(Number(p.started) * 1000).toLocaleString() : '',
+      }
+      if (metric === 'network') {
+        info.networkConnections = netConnMap.get(pid) || 0
+      }
+      if (metric === 'gpu') {
+        info.gpuVramUsedMB = gpuMap.get(pid)
+      }
+      return info
+    })
 
     switch (metric) {
       case 'cpu':
@@ -283,15 +363,24 @@ async function getProcesses(metric: string, limit = 20): Promise<ProcessListResp
         list.sort((a, b) => b.memoryUsage - a.memoryUsage)
         break
       case 'network':
-      case 'gpu':
-        list.sort((a, b) => b.cpuUsage - a.cpuUsage)
+        list.sort((a, b) => (b.networkConnections || 0) - (a.networkConnections || 0))
         break
+      case 'gpu': {
+        list.sort((a, b) => {
+          const av = a.gpuVramUsedMB ?? -1
+          const bv = b.gpuVramUsedMB ?? -1
+          if (bv !== av) return bv - av
+          return b.cpuUsage - a.cpuUsage
+        })
+        break
+      }
     }
 
     return {
       processes: list.slice(0, limit),
       metric,
       success: true,
+      metricUnavailable,
     }
   } catch (e) {
     return {

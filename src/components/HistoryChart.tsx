@@ -1,5 +1,5 @@
 import { useMonitorStore } from '@/store/useMonitorStore'
-import { THEME_COLORS } from '@/utils/constants'
+import { THEME_COLORS, HISTORY_POINT_INTERVAL_MS } from '@/utils/constants'
 import { useMemo, useState } from 'react'
 import {
   ComposedChart,
@@ -63,7 +63,7 @@ export function HistoryChart() {
     })
   }, [history, historyWindowMinutes])
 
-  const expectedCount = Math.floor(historyWindowMinutes * 60 / 2)
+  const expectedCount = Math.floor((historyWindowMinutes * 60 * 1000) / HISTORY_POINT_INTERVAL_MS)
   const coveragePct = chartData.length > 0
     ? Math.min(100, Math.round((chartData.length / expectedCount) * 100))
     : 0

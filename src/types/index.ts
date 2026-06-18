@@ -58,6 +58,8 @@ export interface ProcessInfo {
   command: string
   user: string
   startTime: string
+  networkConnections?: number
+  gpuVramUsedMB?: number
 }
 
 export type MetricKey = 'cpu' | 'memory' | 'network' | 'gpu'

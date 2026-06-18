@@ -16,6 +16,7 @@ export function ProcessModal() {
   const processes = useMonitorStore(s => s.processes)
   const processModalMetric = useMonitorStore(s => s.processModalMetric)
   const processesFetchError = useMonitorStore(s => s.processesFetchError)
+  const processMetricUnavailable = useMonitorStore(s => s.processMetricUnavailable)
   const killResults = useMonitorStore(s => s.killResults)
   const closeProcessModal = useMonitorStore(s => s.closeProcessModal)
   const killProcess = useMonitorStore(s => s.killProcess)
@@ -80,17 +81,36 @@ export function ProcessModal() {
     }
   }
 
+  const getMetricHeaderLabel = () => {
+    switch (processModalMetric) {
+      case 'cpu': return 'CPU'
+      case 'memory': return '内存'
+      case 'network': return '连接数'
+      case 'gpu': return '显存'
+      default: return '占用'
+    }
+  }
+
   const getMetricValue = (p: typeof processes[0]) => {
     const metric = processModalMetric
     if (!metric) return '-'
     switch (metric) {
-      case 'cpu': return `${p.cpuUsage.toFixed(1)}%`
-      case 'memory': return `${p.memoryUsage.toFixed(0)} MB`
-      case 'network':
-      case 'gpu':
-        return p.cpuUsage > 0 || p.memoryUsage > 0
-          ? `CPU ${p.cpuUsage.toFixed(1)}% · Mem ${p.memoryUsage.toFixed(0)}MB`
-          : '—'
+      case 'cpu':
+        return `${p.cpuUsage.toFixed(1)}%`
+      case 'memory':
+        return `${p.memoryUsage.toFixed(0)} MB`
+      case 'network': {
+        const n = p.networkConnections
+        return n !== undefined && n > 0 ? `${n} 个` : '—'
+      }
+      case 'gpu': {
+        const vram = p.gpuVramUsedMB
+        if (vram === undefined || vram <= 0) return '—'
+        if (vram >= 1024) return `${(vram / 1024).toFixed(2)} GB`
+        return `${vram.toFixed(1)} MB`
+      }
+      default:
+        return '—'
     }
   }
 
@@ -100,8 +120,19 @@ export function ProcessModal() {
     switch (metric) {
       case 'cpu': return p.cpuUsage
       case 'memory': return p.memoryUsage
-      case 'network':
-      case 'gpu': return p.cpuUsage
+      case 'network': return p.networkConnections || 0
+      case 'gpu': return p.gpuVramUsedMB || -1
+      default: return 0
+    }
+  }
+
+  const getMetricTextColor = () => {
+    switch (processModalMetric) {
+      case 'cpu': return '#00d4aa'
+      case 'memory': return '#f0a030'
+      case 'network': return '#4fc3f7'
+      case 'gpu': return '#ab47bc'
+      default: return colors.accent
     }
   }
 
@@ -202,6 +233,23 @@ export function ProcessModal() {
           </div>
         )}
 
+        {processMetricUnavailable && !processesFetchError && (
+          <div
+            className="px-4 py-2 flex items-start gap-2 text-[11px]"
+            style={{
+              background: `${colors.unavailable}14`,
+              color: colors.unavailable,
+              borderBottom: `1px solid ${colors.unavailable}33`,
+            }}
+          >
+            <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+            <div>
+              <div className="font-medium">当前资源无法提供精确进程级统计</div>
+              <div className="opacity-85 mt-0.5">{processMetricUnavailable}</div>
+            </div>
+          </div>
+        )}
+
         {sortedProcesses.length === 0 && !processesFetchError && (
           <div
             className="px-4 py-8 text-center text-xs"
@@ -225,7 +273,7 @@ export function ProcessModal() {
               <tr>
                 <th className="text-left px-3 py-2 text-[11px] font-medium" style={{ color: colors.textSecondary }}>PID</th>
                 <th className="text-left px-3 py-2 text-[11px] font-medium" style={{ color: colors.textSecondary }}>进程名</th>
-                <th className="text-right px-3 py-2 text-[11px] font-medium" style={{ color: colors.textSecondary }}>占用</th>
+                <th className="text-right px-3 py-2 text-[11px] font-medium" style={{ color: colors.textSecondary }}>{getMetricHeaderLabel()}</th>
                 <th className="text-right px-3 py-2 text-[11px] font-medium" style={{ color: colors.textSecondary }}>操作</th>
               </tr>
             </thead>
@@ -257,7 +305,7 @@ export function ProcessModal() {
                           </div>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right text-[11px] tabular-nums font-medium" style={{ color: colors.accent, fontFamily: '"JetBrains Mono", monospace' }}>
+                      <td className="px-3 py-2 text-right text-[11px] tabular-nums font-medium" style={{ color: getMetricTextColor(), fontFamily: '"JetBrains Mono", monospace' }}>
                         {getMetricValue(p)}
                       </td>
                       <td className="px-3 py-2 text-right">
@@ -312,7 +360,7 @@ export function ProcessModal() {
         </div>
 
         <div
-          className="px-4 py-2 flex items-center justify-between text-[10px]"
+          className="px-4 py-2 flex items-center justify-between text-[10px] flex-wrap gap-1"
           style={{
             borderTop: `1px solid ${colors.border}`,
             background: colors.card,
@@ -329,6 +377,16 @@ export function ProcessModal() {
             />
             每 4 秒自动刷新 · 点击"结束进程"需两次点击确认，防止误操作
           </span>
+          {processModalMetric === 'network' && (
+            <span className="opacity-80">
+              网络按 Socket 连接数排序（Windows: netstat / Linux: ss）
+            </span>
+          )}
+          {processModalMetric === 'gpu' && (
+            <span className="opacity-80">
+              GPU 按占用显存排序（需要 NVIDIA 显卡 + nvidia-smi）
+            </span>
+          )}
         </div>
       </div>
     </div>
