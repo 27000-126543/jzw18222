@@ -4,11 +4,14 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -n api,web -c cyan,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:web": "vite",
+    "dev:api": "tsx watch api/index.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "check": "tsc -b --noEmit"
+    "check": "tsc -b --noEmit",
+    "start": "tsx api/index.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -18,9 +21,16 @@
     "react-router-dom": "^7.3.0",
     "tailwind-merge": "^3.0.2",
     "recharts": "^2.15.0",
-    "zustand": "^5.0.3"
+    "zustand": "^5.0.3",
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
+    "systeminformation": "^5.25.11"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "concurrently": "^9.1.2",
+    "tsx": "^4.19.2",
     "@eslint/js": "^9.25.0",
     "@types/node": "^22.15.30",
     "@types/react": "^18.3.12",

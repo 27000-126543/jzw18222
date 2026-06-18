@@ -5,23 +5,32 @@ export type Position = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
 export interface CpuMetrics {
   cores: number[]
   overall: number
+  available: boolean
+  error?: string
 }
 
 export interface MemoryMetrics {
   used: number
   total: number
   percentage: number
+  available: boolean
+  error?: string
 }
 
 export interface NetworkMetrics {
   upload: number
   download: number
+  interfaceName: string
+  available: boolean
+  error?: string
 }
 
 export interface GpuMetrics {
   utilization: number
   vramUsed: number
   vramTotal: number
+  available: boolean
+  error?: string
 }
 
 export interface SystemMetrics {
@@ -33,12 +42,12 @@ export interface SystemMetrics {
 
 export interface MetricHistoryPoint {
   timestamp: number
-  cpuOverall: number
-  memoryPercentage: number
-  networkUpload: number
-  networkDownload: number
-  gpuUtilization: number
-  gpuVramUsed: number
+  cpuOverall: number | null
+  memoryPercentage: number | null
+  networkUpload: number | null
+  networkDownload: number | null
+  gpuUtilization: number | null
+  gpuVramUsed: number | null
 }
 
 export interface ProcessInfo {
@@ -46,8 +55,9 @@ export interface ProcessInfo {
   name: string
   cpuUsage: number
   memoryUsage: number
-  networkUsage: number
-  gpuUsage: number
+  command: string
+  user: string
+  startTime: string
 }
 
 export type MetricKey = 'cpu' | 'memory' | 'network' | 'gpu'
@@ -73,4 +83,11 @@ export const METRIC_ICONS: Record<MetricKey, string> = {
   memory: 'MemoryStick',
   network: 'Wifi',
   gpu: 'Monitor',
+}
+
+export interface KillResult {
+  success: boolean
+  pid: number
+  message: string
+  error?: string
 }
